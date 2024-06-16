@@ -1,31 +1,33 @@
 package io.github.novakovalexey.http4s.spnego
 
 import cats.data.{Kleisli, OptionT}
-import cats.effect.{ContextShift, IO}
+import cats.effect.IO
+import cats.effect.unsafe.implicits.global
 import cats.implicits._
-import io.chrisdavenport.log4cats.SelfAwareStructuredLogger
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+
+import org.typelevel.log4cats._
+import org.typelevel.log4cats.slf4j._
+
 import io.github.novakovalexey.http4s.spnego.SpnegoAuthenticator.login
+
 import org.http4s._
 import org.http4s.headers.Authorization
 import org.http4s.implicits._
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
-import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration._
 import scala.io.Codec
+import org.typelevel.ci.CIString
 
 class SpnegoAuthTest extends AnyFlatSpec with Matchers {
-  implicit val cs: ContextShift[IO] = IO.contextShift(global)
-
   val realm = "EXAMPLE.ORG"
   val principal = s"HTTP/myservice@$realm"
   val keytab = "/etc/krb5.keytab"
   val debug = true
   val domain = Some("myservice")
   val path: Option[String] = None
-  val tokenValidity: FiniteDuration = 3600.seconds
+  val tokenValidity = 3600.seconds
   val cookieName = "http4s.spnego"
 
   val cfg = SpnegoConfig(
@@ -40,7 +42,7 @@ class SpnegoAuthTest extends AnyFlatSpec with Matchers {
   )
   val testTokens = new Tokens(cfg.tokenValidity.toMillis, Codec.toUTF8(cfg.signatureSecret))
   val authenticator = SpnegoAuthenticator[IO](cfg, testTokens).unsafeRunSync()
-  implicit lazy val logger: SelfAwareStructuredLogger[IO] = Slf4jLogger.getLogger[IO]
+  implicit lazy val logger: SelfAwareStructuredLogger[IO] = Slf4jFactory.create[IO].getLogger
   val spnego = new Spnego[IO](cfg, testTokens, authenticator)
   val loginEndpoint = new LoginEndpoint[IO](spnego)
   val authorizationHeader = "Authorization"
@@ -48,7 +50,9 @@ class SpnegoAuthTest extends AnyFlatSpec with Matchers {
   val userPrincipal = "myprincipal"
 
   it should "reject invalid authorization token" in {
-    val req = Request[IO]().putHeaders(Authorization(Credentials.Token(SpnegoAuthenticator.Negotiate.ci, "test")))
+    val req = Request[IO]().putHeaders(
+      Authorization(Credentials.Token(CIString(SpnegoAuthenticator.Negotiate), Base64Util.encode("test".getBytes())))
+    )
 
     val route = loginEndpoint.routes.orNotFound
     val res = route.run(req)
@@ -59,7 +63,9 @@ class SpnegoAuthTest extends AnyFlatSpec with Matchers {
   }
 
   it should "reject invalid cookie" in {
-    val req = Request[IO]().addCookie(cookieName, "myprincipal&1566120533815&0zjbRRVXDFlDYfRurlxaySKWhgE=")
+    val req = Request[IO]().addCookie(cookieName, 
+      Base64Util.encode("myprincipal&1566120533815&0zjbRRVXDFlDYfRurlxaySKWhgE=".getBytes())
+    )
 
     val route = loginEndpoint.routes.orNotFound
     val res = route.run(req)
@@ -71,7 +77,8 @@ class SpnegoAuthTest extends AnyFlatSpec with Matchers {
 
   def mockKerberos(token: Option[AuthToken], mockTokens: Tokens = testTokens): Spnego[IO] = {
     val authenticator = for {
-      (lc, manager) <- login[IO](cfg)
+      response <- login[IO](cfg)
+      (lc, manager) = response
     } yield new SpnegoAuthenticator[IO](cfg, mockTokens, lc, manager) {
       override private[spnego] def kerberosAcceptToken(
         clientToken: Array[Byte]
@@ -85,11 +92,11 @@ class SpnegoAuthTest extends AnyFlatSpec with Matchers {
   it should "reject token if Kerberos failed" in {
     //given
     val route = loginRoute(None)
-    val clientToken = "test"
-    val req2 = Request[IO]().putHeaders(Header(authorizationHeader, s"${SpnegoAuthenticator.Negotiate} $clientToken"))
+    val clientToken = Base64Util.encode("test".getBytes())
+    val req2 = Request[IO]().putHeaders(Header.Raw(CIString(authorizationHeader), s"${SpnegoAuthenticator.Negotiate} $clientToken"))
     //when
     val res2 = route.run(req2)
-    val actualResp = res2.unsafeRunSync
+    val actualResp = res2.unsafeRunSync()
     //then
     actualResp.status should ===(Status.Unauthorized)
     actualResp.as[String].unsafeRunSync() should ===(SpnegoAuthenticator.reasonToString(CredentialsMissing))
@@ -132,10 +139,12 @@ class SpnegoAuthTest extends AnyFlatSpec with Matchers {
     res1.unsafeRunSync().status should ===(Status.Unauthorized)
 
     //given
-    val clientToken = "test"
-    val req2 = Request[IO]().putHeaders(Header(authorizationHeader, s"${SpnegoAuthenticator.Negotiate} $clientToken"))
+    val clientToken = Base64Util.encode("test".getBytes())
+    val req2 = Request[IO]().putHeaders(
+      Header.Raw(CIString(authorizationHeader), s"${SpnegoAuthenticator.Negotiate} $clientToken")
+    )
     //when
-    val okResponse = route.run(req2).unsafeRunSync
+    val okResponse = route.run(req2).unsafeRunSync()
 
     //then
     okResponse.status should ===(Status.Ok)
@@ -162,11 +171,11 @@ class SpnegoAuthTest extends AnyFlatSpec with Matchers {
     //given
     val noTokenValidity = new Tokens(0.millisecond.toMillis, Codec.toUTF8(cfg.signatureSecret))
     val routes = loginRoute(Some(noTokenValidity.create(userPrincipal)), noTokenValidity)
-    val signature = "test"
-    val req = Request[IO]().putHeaders(Header(authorizationHeader, s"${SpnegoAuthenticator.Negotiate} $signature"))
+    val signature = Base64Util.encode("test".getBytes())    
+    val req = Request[IO]().putHeaders(Header.Raw(CIString(authorizationHeader), s"${SpnegoAuthenticator.Negotiate} $signature"))
     //when
     val io = routes.run(req)
-    val resp = io.unsafeRunSync
+    val resp = io.unsafeRunSync()
     //then
     resp.status should ===(Status.Ok)
     val cookie = resp.cookies.headOption.map(_.content).getOrElse(fail())
@@ -190,7 +199,7 @@ class SpnegoAuthTest extends AnyFlatSpec with Matchers {
   it should "allow custom onFailure handler" in {
     val login = new LoginEndpoint[IO](spnego)
     val onFailure: AuthedRoutes[Rejection, IO] = Kleisli { _ =>
-      val res = Response[IO](Status.BadRequest).putHeaders(Header("test 1", "test 2")).withEntity("test entity")
+      val res = Response[IO](Status.BadRequest).putHeaders(Header.Raw(CIString("test 1"), "test 2")).withEntity("test entity")
       OptionT.liftF(res.pure[IO])
     }
     val routes = login.routes(onFailure).orNotFound
@@ -202,9 +211,9 @@ class SpnegoAuthTest extends AnyFlatSpec with Matchers {
     //then
     val actualResp = res1.unsafeRunSync()
     actualResp.status should ===(Status.BadRequest)
-    val maybeHeader = actualResp.headers.get("test 1".ci)
+    val maybeHeader = actualResp.headers.get(CIString("test 1"))
     maybeHeader.isDefined should ===(true)
-    maybeHeader.map(_.value should ===("test 2")).getOrElse(fail())
+    maybeHeader.map(_.head.value should ===("test 2")).getOrElse(fail())
     actualResp.as[String].unsafeRunSync() should ===("test entity")
   }
 }

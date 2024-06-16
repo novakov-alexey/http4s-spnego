@@ -1,36 +1,39 @@
-import $ivy.`com.goyeau::mill-git:9977203`
-import $ivy.`com.lihaoyi::mill-contrib-bsp:$MILL_VERSION`
+import $ivy.`com.goyeau::mill-git::0.2.5`
+import $ivy.`com.lihaoyi::mill-contrib-bsp:0.8.0-15-080141`
 import $ivy.`io.github.davidgregory084::mill-tpolecat:0.1.4`
 import $file.project.Dependencies, Dependencies.Dependencies._
 import com.goyeau.mill.git.GitVersionedPublishModule
 import io.github.davidgregory084.TpolecatModule
 import mill._
+import scalalib._
 import mill.scalalib._
 import mill.scalalib.publish.{Developer, License, PomSettings, VersionControl}
 import mill.scalalib.scalafmt.ScalafmtModule
 import mill.modules.Jvm
-import ammonite.ops._
+import ScalaVersion._
 
 object ScalaVersion {
+  val ver3 = "3.3.1"
   val ver213 = "2.13.5"
-  val ver212 = "2.12.13"
 }
 
-object `http4s-spnego` extends Cross[Http4sSpnegoModule](ScalaVersion.ver213, ScalaVersion.ver212)
-class Http4sSpnegoModule(val crossScalaVersion: String)
-    extends CrossScalaModule
-    with TpolecatModule
+object `http4s-spnego` extends Cross[Http4sSpnegoModule](Seq(ver3, ver213))
+
+trait Http4sSpnegoModule
+    extends CrossScalaModule    
     with ScalafmtModule    
     with GitVersionedPublishModule {
   override def scalacOptions =
     super.scalacOptions().filter(_ != "-Wunused:imports").filter(_ != "-Wunused:explicits") ++
       (if (scalaVersion().startsWith("2.12")) Seq("-Ypartial-unification") else Seq.empty)
+
   override def ivyDeps =
     super.ivyDeps() ++ http4sBase ++ logging ++ kindProjector
-  override def scalacPluginIvyDeps = super.scalacPluginIvyDeps() ++ betterMonadicFor
 
-  object test extends Tests {
-    def testFrameworks = Seq("org.scalatest.tools.Framework")
+  override def scalacPluginIvyDeps = super.scalacPluginIvyDeps() //++ betterMonadicFor
+
+  object test extends ScalaTests {
+    def testFramework = "org.scalatest.tools.Framework"
     override def ivyDeps = super.ivyDeps() ++ tests
     override def scalacOptions =
       super.scalacOptions().filter(_ != "-Wunused:params").filter(_ != "-Xfatal-warnings") ++
@@ -51,32 +54,36 @@ class Http4sSpnegoModule(val crossScalaVersion: String)
       developers = Seq(Developer("novakov-alexey", "Alexey Novakov", "https://github.com/novakov-alexey"))
     )
 }
+
 object `test-server` extends ScalaModule {
   def scalaVersion = ScalaVersion.ver213
+
   override def ivyDeps =
     super.ivyDeps() ++ http4sBase ++ http4sDsl
+
   override def moduleDeps =
     super.moduleDeps ++ Seq(`http4s-spnego`(ScalaVersion.ver213))
+
   def packageIt = T {
     val dest = T.ctx().dest
-    val libDir = dest / 'lib
-    val binDir = dest / 'bin
+    val libDir = dest / "lib"
+    val binDir = dest / "bin"
 
-    mkdir(libDir)
-    mkdir(binDir)
+    os.makeDir(libDir)
+    os.makeDir(binDir)
 
     val allJars = packageSelfModules() ++ runClasspath()
       .map(_.path)
-      .filter(path => exists(path) && !path.isDir)
+      .filter(path => os.exists(path) && !os.isDir(path))
       .toSeq
 
     allJars.foreach { file =>
-      cp.into(file, libDir)
+      os.copy.into(file, libDir)
     }
 
-    val runnerFile = Jvm.createLauncher(finalMainClass(), Agg.from(ls(libDir)), forkArgs())
+    val runnerFile = util.Jvm.createLauncher(finalMainClass(), Agg.from(os.list(libDir)), forkArgs())
 
-    mv.into(runnerFile.path, binDir)
+    os.move.into(runnerFile.path, binDir)
 
     PathRef(dest)
   }
@@ -88,8 +95,8 @@ object `test-server` extends ScalaModule {
         .zip(module.artifactName)
         .zip(module.artifactId)
         .map { case ((jar, name), suffix) =>
-          val namedJar = jar.path / up / s"$name$suffix.jar"
-          cp(jar.path, namedJar)
+          val namedJar = jar.path / os.up / s"$name$suffix.jar"
+          os.copy(jar.path, namedJar)
 
           namedJar
         }

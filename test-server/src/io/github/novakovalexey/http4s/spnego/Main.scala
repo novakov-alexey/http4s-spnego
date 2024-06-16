@@ -15,7 +15,7 @@ object Main extends IOApp {
   override def run(args: List[String]): IO[ExitCode] =
     stream[IO].compile.drain.as(ExitCode.Success)
 
-  def stream[F[_]: ConcurrentEffect: ContextShift: Timer]: Stream[F, ExitCode] = for {
+  def stream[F[_]: Async]: Stream[F, ExitCode] = for {
     spnego <- Stream.eval(makeSpnego)
 
     httpApp = Router("/auth" -> new LoginEndpoint[F](spnego).routes).orNotFound
@@ -27,7 +27,7 @@ object Main extends IOApp {
       .serve
   } yield stream
 
-  private def makeSpnego[F[_]: ConcurrentEffect: ContextShift: Timer] = {
+  private def makeSpnego[F[_]: Async] = {
     val realm = sys.env.getOrElse("REALM", "EXAMPLE.ORG")
     val principal = sys.env.getOrElse("PRINCIPAL", s"HTTP/testserver@$realm")
     val keytab = sys.env.getOrElse("KEYTAB", "/tmp/krb5.keytab")

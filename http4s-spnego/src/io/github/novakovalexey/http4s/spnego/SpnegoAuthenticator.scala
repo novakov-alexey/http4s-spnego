@@ -7,26 +7,37 @@ import java.util.Collections
 import cats.data.OptionT
 import cats.effect.Sync
 import cats.implicits._
-import io.chrisdavenport.log4cats.Logger
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import org.typelevel.log4cats.Logger
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 import io.github.novakovalexey.http4s.spnego.SpnegoAuthenticator._
 import javax.security.auth.Subject
 import javax.security.auth.kerberos.KerberosPrincipal
 import javax.security.auth.login.LoginContext
 import org.http4s._
 import org.ietf.jgss.{GSSCredential, GSSManager}
+import org.typelevel.ci._
 
 private[spnego] object SpnegoAuthenticator {
   val Negotiate = "Negotiate"
-  val Authenticate = "WWW-Authenticate"
+  val Authenticate = ci"WWW-Authenticate"
+
+  case class AuthenticateHeader(v: String)
+  object AuthenticateHeader {
+    implicit def headerAuthentication: Header[AuthenticateHeader, Header.Single] =
+      new Header[AuthenticateHeader, Header.Single] {
+        def name = Authenticate
+        def value(f: AuthenticateHeader) = f.v
+        def parse(s: String) = AuthenticateHeader(s).asRight
+      }
+  }
 
   def reasonToString: RejectionReason => String = {
     case CredentialsRejected => "Credentials rejected"
-    case CredentialsMissing => "Credentials are missing"
+    case CredentialsMissing  => "Credentials are missing"
   }
 
   private[spnego] def loginContext[F[_]](cfg: SpnegoConfig)(implicit F: Sync[F]): F[LoginContext] = for {
-    (entryName, kerberosConfiguration) <- F.delay {
+    configs <- F.delay {
       cfg.jaasConfig match {
         case Some(c) =>
           val noEntryNeeded = ""
@@ -36,6 +47,8 @@ private[spnego] object SpnegoAuthenticator {
     }.onError { case e =>
       F.raiseError(new RuntimeException("Spnego Configuration creation has been failed", e))
     }
+
+    (entryName, kerberosConfiguration) = configs
 
     lc <- F.delay {
       val subject = new Subject(
@@ -57,11 +70,12 @@ private[spnego] object SpnegoAuthenticator {
   } yield lc
 
   /*
-  Creates LoginContext, logins and created GSSManager based on SpnegoConfig
+    Creates LoginContext, logins and created GSSManager based on SpnegoConfig
    */
   private[spnego] def apply[F[_]](cfg: SpnegoConfig, tokens: Tokens)(implicit F: Sync[F]): F[SpnegoAuthenticator[F]] =
     for {
-      (lc, manager) <- login[F](cfg)
+      response <- login[F](cfg)
+      (lc, manager) = response
     } yield new SpnegoAuthenticator[F](cfg, tokens, lc, manager)
 
   private[spnego] def login[F[_]](cfg: SpnegoConfig)(implicit F: Sync[F]): F[(LoginContext, GSSManager)] =
@@ -94,18 +108,16 @@ private[spnego] class SpnegoAuthenticator[F[_]](
 )(implicit F: Sync[F]) {
   implicit lazy val logger: Logger[F] = Slf4jLogger.getLogger[F]
 
-  private[spnego] def apply(hs: Headers): F[Either[Rejection, AuthToken]] =
-    cookieToken(hs).orElse(kerberosNegotiate(hs)).getOrElseF(initiateNegotiations)
+  private[spnego] def apply(cookies: List[RequestCookie], hs: Headers): F[Either[Rejection, AuthToken]] =
+    cookieToken(cookies).orElse(kerberosNegotiate(hs)).getOrElseF(initiateNegotiations)
 
-  private def cookieToken(hs: Headers) =
+  private def initiateNegotiations: F[Either[Rejection, AuthToken]] =
+    logger.debug("no negotiation header found, initiating negotiations") *>
+      Either.left[Rejection, AuthToken](AuthenticationFailedRejection(CredentialsMissing, challengeHeader())).pure[F]
+
+  private def cookieToken(hs: List[RequestCookie]) =
     for {
-      c <-
-        headers.Cookie
-          .from(hs)
-          .collect { case h => h.values.find(_.name == cfg.cookieName) }
-          .flatten
-          .toOptionT[F]
-
+      c <- hs.find(h => h.name == cfg.cookieName).toOptionT[F]
       _ <- OptionT(logger.debug("cookie found").map(_.some))
 
       t <- Some(
@@ -126,13 +138,12 @@ private[spnego] class SpnegoAuthenticator[F[_]](
 
   private def clientToken(hs: Headers): F[Option[Array[Byte]]] =
     for {
-      authHeader <- headers.Authorization.from(hs).filter(_.value.startsWith(Negotiate)).pure[F]
+      authHeader <- hs.headers.find(_.value.toString.startsWith(Negotiate)).pure[F]
       token <- authHeader match {
         case Some(header) =>
-          logger.debug("authorization header found") *> Base64Util
-            .decode(header.value.substring(Negotiate.length).trim)
-            .some
-            .pure[F]
+          logger.debug("authorization header found") *> Sync[F]
+            .delay(Base64Util.decode(header.value.substring(Negotiate.length).trim))
+            .map(Some(_))
         case _ => Option.empty[Array[Byte]].pure[F]
       }
     } yield token
@@ -143,18 +154,20 @@ private[spnego] class SpnegoAuthenticator[F[_]](
       result <- OptionT(kerberosCore(token).map(Option(_)))
     } yield result
 
-  private def challengeHeader(maybeServerToken: Option[Array[Byte]] = None): Header = {
+  private def challengeHeader(maybeServerToken: Option[Array[Byte]] = None) = {
     val scheme = Negotiate + maybeServerToken.map(" " + Base64Util.encode(_)).getOrElse("")
-    Header(Authenticate, scheme)
+    AuthenticateHeader(scheme)
   }
 
   private def kerberosCore(clientToken: Array[Byte]): F[Either[Rejection, AuthToken]] =
     F.defer {
       for {
-        (maybeServerToken, maybeToken) <- kerberosAcceptToken(clientToken)
+        response <- kerberosAcceptToken(clientToken)
+        (maybeServerToken, maybeToken) = response
         _ <- logger.debug(s"serverToken '${maybeServerToken.map(Base64Util.encode)}' token '$maybeToken'")
         token <- maybeToken match {
-          case Some(t) => logger.debug("received new token") *> t.asRight[Rejection].pure[F]
+          case Some(t) =>
+            logger.debug("received new token") *> t.asRight[Rejection].pure[F]
           case _ =>
             logger.debug("no token received, but if there is a serverToken, then negotiations are ongoing") *> Either
               .left[Rejection, AuthToken](
@@ -193,8 +206,4 @@ private[spnego] class SpnegoAuthenticator[F[_]](
         }
       )
     }
-
-  private def initiateNegotiations: F[Either[Rejection, AuthToken]] =
-    logger.debug("no negotiation header found, initiating negotiations") *>
-      Either.left[Rejection, AuthToken](AuthenticationFailedRejection(CredentialsMissing, challengeHeader())).pure[F]
 }

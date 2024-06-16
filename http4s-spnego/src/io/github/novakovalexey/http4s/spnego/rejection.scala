@@ -6,7 +6,7 @@ import org.http4s.Header
 
 sealed trait Rejection
 
-final case class AuthenticationFailedRejection(reason: RejectionReason, challenge: Header) extends Rejection
+final case class AuthenticationFailedRejection(reason: RejectionReason, challenge: Header.ToRaw) extends Rejection
 
 sealed trait RejectionReason
 

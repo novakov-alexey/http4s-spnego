@@ -8,3 +8,4 @@ out
 .dotty-ide-disabled
 settings.json
 .ammonite
+.bsp

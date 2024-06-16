@@ -3,8 +3,8 @@ package io.github.novakovalexey.http4s.spnego
 import cats.data.{Kleisli, OptionT}
 import cats.effect.Sync
 import cats.implicits._
-import io.chrisdavenport.log4cats.Logger
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import org.typelevel.log4cats.Logger
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 import io.github.novakovalexey.http4s.spnego.SpnegoAuthenticator._
 import org.http4s._
 import org.http4s.server.AuthMiddleware
@@ -29,7 +29,7 @@ class Spnego[F[_]: Sync](cfg: SpnegoConfig, tokens: Tokens, authenticator: Spneg
   logger: Logger[F]
 ) {
   val authToken: Kleisli[F, Request[F], Either[Rejection, AuthToken]] =
-    Kleisli(request => authenticator.apply(request.headers))
+    Kleisli(request => authenticator.apply(request.cookies, request.headers))
 
   private val onFailure: AuthedRoutes[Rejection, F] =
     Kleisli { req =>
@@ -40,12 +40,13 @@ class Spnego[F[_]: Sync](cfg: SpnegoConfig, tokens: Tokens, authenticator: Spneg
             s"Failed to parse '$name' value, because of $msg",
             Nil
           ).pure[F]
-        case ServerErrorRejection(e) => (s"server error: ${e.getMessage}", Nil).pure[F]
+        case ServerErrorRejection(e)     => (s"server error: ${e.getMessage}", Nil).pure[F]
         case UnexpectedErrorRejection(e) => (s"unexpected error: ${e.getMessage}", Nil).pure[F]
       }
 
       OptionT.liftF(for {
-        (msg, headers) <- rejection
+        response <- rejection
+        (msg, headers) = response
         res = Response[F](Status.Unauthorized).putHeaders(headers: _*).withEntity(msg)
       } yield res)
     }
