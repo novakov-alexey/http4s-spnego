@@ -53,6 +53,7 @@ jobs:
       - name: Publish
         if: github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release'
         env:
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
           SONATYPE_CREDENTIALS: ${{ secrets.SONATYPE_CREDENTIALS }}
           GPG_PASSWORD: ${{ secrets.GPG_PASSWORD }}
         run: |
@@ -61,4 +62,4 @@ jobs:
           rm private.key
           export GPG_TTY=$(tty)
 
-          mill mill.scalalib.PublishModule/publishAll __.publishArtifacts novakov.alex:$SONATYPE_CREDENTIALS --gpgArgs --passphrase=$GPG_PASSWORD,--batch,--yes,-a,-b,--pinentry-mode,loopback
+          mill mill.scalalib.PublishModule/publishAll __.publishArtifacts $SONATYPE_USERNAME:$SONATYPE_CREDENTIALS --gpgArgs --passphrase=$GPG_PASSWORD,--batch,--yes,-a,-b,--pinentry-mode,loopback
