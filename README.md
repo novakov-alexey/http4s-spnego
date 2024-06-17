@@ -1,8 +1,7 @@
 # http4s-spnego
 
-[![Codacy Badge](https://api.codacy.com/project/badge/Grade/e5cbdb15d6e14135bc970a5f83706fcb)](https://app.codacy.com/app/novakov.alex/http4s-spnego?utm_source=github.com&utm_medium=referral&utm_content=novakov-alexey/http4s-spnego&utm_campaign=Badge_Grade_Dashboard)
 [![Maven Central](https://maven-badges.herokuapp.com/maven-central/io.github.novakov-alexey/http4s-spnego_2.13/badge.svg)](https://maven-badges.herokuapp.com/maven-central/io.github.novakov-alexey/http4s-spnego_2.13)
-![Build](https://github.com/novakov-alexey/http4s-spnego/workflows/CI/badge.svg?branch=master)
+![Build](https://github.com/novakov-alexey/http4s-spnego/actions/workflows/scala.yml/badge.svg?branch=master)
 
 This library provides [SPNEGO Authentication](https://en.wikipedia.org/wiki/SPNEGO) as a middleware for [http4s](https://github.com/http4s/http4s).
 
@@ -15,7 +14,7 @@ Project is an adaptation of [akka-http-spnego](https://github.com/tresata/akka-h
 ```scala
 libraryDependencies += "io.github.novakov-alexey" % "http4s-spnego_2.13" % "<version>"
 or 
-libraryDependencies += "io.github.novakov-alexey" % "http4s-spnego_2.12" % "<version>"
+libraryDependencies += "io.github.novakov-alexey" % "http4s-spnego_3" % "<version>"
 ```
 
 2.  Instantiate `Spnego` using `SpnegoConfig` and `JaasConfig` case classes:
