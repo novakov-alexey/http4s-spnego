@@ -1,9 +1,11 @@
 import $ivy.`com.goyeau::mill-git::0.2.5`
 import $ivy.`com.lihaoyi::mill-contrib-bsp:0.8.0-15-080141`
 import $ivy.`io.github.davidgregory084::mill-tpolecat:0.1.4`
+import $ivy.`io.chris-kipp::mill-ci-release::0.1.10`
 import $file.project.Dependencies, Dependencies.Dependencies._
 import com.goyeau.mill.git.GitVersionedPublishModule
 import io.github.davidgregory084.TpolecatModule
+import io.kipp.mill.ci.release.CiReleaseModule
 import mill._
 import scalalib._
 import mill.scalalib._
@@ -22,7 +24,8 @@ object `http4s-spnego` extends Cross[Http4sSpnegoModule](Seq(ver3, ver213))
 trait Http4sSpnegoModule
     extends CrossScalaModule    
     with ScalafmtModule    
-    with GitVersionedPublishModule {
+    with GitVersionedPublishModule 
+    with CiReleaseModule {
   override def scalacOptions =
     super.scalacOptions().filter(_ != "-Wunused:imports").filter(_ != "-Wunused:explicits") ++
       (if (scalaVersion().startsWith("2.12")) Seq("-Ypartial-unification") else Seq.empty)
