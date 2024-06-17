@@ -38,6 +38,7 @@ jobs:
   publish:
     needs: [checks, tests]
     runs-on: ubuntu-latest
+    environment: main
     steps:
       - uses: actions/checkout@v3
         with:
