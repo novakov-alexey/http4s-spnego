@@ -6,7 +6,6 @@ import $file.project.Dependencies, Dependencies.Dependencies._
 import com.goyeau.mill.git.GitVersionedPublishModule
 import io.github.davidgregory084.TpolecatModule
 import io.kipp.mill.ci.release.CiReleaseModule
-import io.kipp.mill.ci.release.SonatypeHost
 import mill._
 import scalalib._
 import mill.scalalib._
@@ -27,7 +26,6 @@ trait Http4sSpnegoModule
     with ScalafmtModule
     with GitVersionedPublishModule
     with CiReleaseModule {
-  override def sonatypeHost = Some(SonatypeHost.s01)
 
   override def scalacOptions =
     super.scalacOptions().filter(_ != "-Wunused:imports").filter(_ != "-Wunused:explicits") ++
