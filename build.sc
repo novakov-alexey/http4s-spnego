@@ -6,6 +6,7 @@ import $file.project.Dependencies, Dependencies.Dependencies._
 import com.goyeau.mill.git.GitVersionedPublishModule
 import io.github.davidgregory084.TpolecatModule
 import io.kipp.mill.ci.release.CiReleaseModule
+import io.kipp.mill.ci.release.SonatypeHost
 import mill._
 import scalalib._
 import mill.scalalib._
@@ -22,10 +23,12 @@ object ScalaVersion {
 object `http4s-spnego` extends Cross[Http4sSpnegoModule](Seq(ver3, ver213))
 
 trait Http4sSpnegoModule
-    extends CrossScalaModule    
-    with ScalafmtModule    
-    with GitVersionedPublishModule 
+    extends CrossScalaModule
+    with ScalafmtModule
+    with GitVersionedPublishModule
     with CiReleaseModule {
+  override def sonatypeHost = Some(SonatypeHost.s01)
+
   override def scalacOptions =
     super.scalacOptions().filter(_ != "-Wunused:imports").filter(_ != "-Wunused:explicits") ++
       (if (scalaVersion().startsWith("2.12")) Seq("-Ypartial-unification") else Seq.empty)
@@ -33,7 +36,7 @@ trait Http4sSpnegoModule
   override def ivyDeps =
     super.ivyDeps() ++ http4sBase ++ logging ++ kindProjector
 
-  override def scalacPluginIvyDeps = super.scalacPluginIvyDeps() //++ betterMonadicFor
+  override def scalacPluginIvyDeps = super.scalacPluginIvyDeps() // ++ betterMonadicFor
 
   object test extends ScalaTests {
     def testFramework = "org.scalatest.tools.Framework"
